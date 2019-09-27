@@ -27,6 +27,24 @@ import charms.reactive as reactive
 
 
 class OVSDB(reactive.Endpoint):
+    DB_NB_PORT = 6641
+    DB_SB_PORT = 6642
+
+    def _format_addr(self, addr):
+        """Validate and format IP address
+
+        :param addr: IPv6 or IPv4 address
+        :type addr: str
+        :returns: Address string, optionally encapsulated in brackets ([])
+        :rtype: str
+        :raises: ValueError
+        """
+        ipaddr = ipaddress.ip_address(addr)
+        if isinstance(ipaddr, ipaddress.IPv6Address):
+            fmt = '[{}]'
+        else:
+            fmt = '{}'
+        return fmt.format(ipaddr)
 
     @property
     def cluster_local_addr(self):
@@ -36,25 +54,59 @@ class OVSDB(reactive.Endpoint):
                 relation_id=relation.relation_id)
             for interface in ng_data.get('bind-addresses', []):
                 for addr in interface.get('addresses', []):
-                    return addr['address']
+                    return self._format_addr(addr['address'])
 
     @property
-    def cluster_addrs(self):
+    def cluster_remote_addrs(self):
         for relation in self.relations:
             for unit in relation.units:
                 try:
-                    addr = ipaddress.ip_address(
+                    addr = self._format_addr(
                         unit.received.get('bound-address', ''))
+                    yield addr
                 except ValueError:
                     continue
-                if isinstance(addr, ipaddress.IPv6Address):
-                    yield '[{}]'.format(addr)
-                else:
-                    yield '{}'.format(addr)
 
-    def expected_peers_available(self):
+    @property
+    def db_nb_port(self):
+        return self.DB_NB_PORT
+
+    @property
+    def db_sb_port(self):
+        return self.DB_SB_PORT
+
+    def db_connection_strs(self, addrs, port, proto='ssl'):
+        """Provide connection strings
+
+        :param port: Port number
+        :type port: int
+        :param proto: Protocol
+        :type proto: str
+        :returns: List of connection strings
+        :rtype: Generator[str, None, None]
+        """
+        for addr in addrs:
+            yield ':'.join((proto, addr, str(port)))
+
+    @property
+    def db_nb_connection_strs(self):
+        return self.db_connection_strs(self.cluster_remote_addrs,
+                                       self.db_nb_port)
+
+    @property
+    def db_sb_connection_strs(self):
+        return self.db_connection_strs(self.cluster_remote_addrs,
+                                       self.db_sb_port)
+
+    def expected_units_available(self):
+        """Whether expected units have joined and published data on a relation
+
+        NOTE: This does not work for the peer relation, see separate method
+              for that in the peer relation implementation.
+        """
         if len(self.all_joined_units) == len(
-                list(ch_core.hookenv.expected_peer_units())):
+                list(ch_core.hookenv.expected_related_units(
+                    self.expand_name('{endpoint_name}')))):
             for relation in self.relations:
                 for unit in relation.units:
                     if not unit.received.get('bound-address'):
@@ -66,14 +118,15 @@ class OVSDB(reactive.Endpoint):
                 return True
         return False
 
-    def publish_cluster_local_addr(self):
+    def publish_cluster_local_addr(self, addr=None):
         """Announce the address we bound our OVSDB Servers to.
 
         This will be used by our peers and clients to build a connection
         string to the remote cluster.
         """
         for relation in self.relations:
-            relation.to_publish['bound-address'] = self.cluster_local_addr
+            relation.to_publish['bound-address'] = (
+                addr or self.cluster_local_addr)
 
     def joined(self):
         ch_core.hookenv.log('{}: {} -> {}'
@@ -82,9 +135,6 @@ class OVSDB(reactive.Endpoint):
                                     inspect.currentframe().f_code.co_name),
                             level=ch_core.hookenv.INFO)
         reactive.set_flag(self.expand_name('{endpoint_name}.connected'))
-        self.publish_cluster_local_addr()
-        if self.expected_peers_available:
-            reactive.set_flag(self.expand_name('{endpoint_name}.available'))
 
     def broken(self):
         reactive.clear_flag(self.expand_name('{endpoint_name}.available'))

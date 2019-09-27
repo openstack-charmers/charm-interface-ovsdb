@@ -20,6 +20,8 @@ import inspect
 
 import charmhelpers.core as ch_core
 
+import charms.reactive as reactive
+
 from charms.reactive import (
     when,
 )
@@ -36,6 +38,9 @@ class OVSDBRequires(ovsdb.OVSDB):
                                     type(self).__name__,
                                     inspect.currentframe().f_code.co_name),
                             level=ch_core.hookenv.INFO)
+        super().joined()
+        if self.expected_units_available():
+            reactive.set_flag(self.expand_name('{endpoint_name}.available'))
 
     @when('endpoint.{endpoint_name}.broken')
     def broken(self):

@@ -36,6 +36,7 @@ class OVSDBProvides(ovsdb.OVSDB):
                                     type(self).__name__,
                                     inspect.currentframe().f_code.co_name),
                             level=ch_core.hookenv.INFO)
+        super().joined()
 
     @when('endpoint.{endpoint_name}.broken')
     def broken(self):

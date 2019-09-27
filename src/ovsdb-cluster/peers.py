@@ -12,6 +12,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import charmhelpers.core as ch_core
+
+import charms.reactive as reactive
+
 # the reactive framework unfortunately does not grok `import as` in conjunction
 # with decorators on class instance methods, so we have to revert to `from ...`
 # imports
@@ -23,10 +27,37 @@ from .lib import ovsdb as ovsdb
 
 
 class OVSDBClusterPeer(ovsdb.OVSDB):
+    DB_NB_CLUSTER_PORT = 6643
+    DB_SB_CLUSTER_PORT = 6644
+
+    @property
+    def db_nb_cluster_port(self):
+        return self.DB_NB_CLUSTER_PORT
+
+    @property
+    def db_sb_cluster_port(self):
+        return self.DB_SB_CLUSTER_PORT
+
+    def expected_peers_available(self):
+        if len(self.all_joined_units) == len(
+                list(ch_core.hookenv.expected_peer_units())):
+            for relation in self.relations:
+                for unit in relation.units:
+                    if not unit.received.get('bound-address'):
+                        break
+                else:
+                    continue
+                break
+            else:
+                return True
+        return False
 
     @when('endpoint.{endpoint_name}.joined')
     def joined(self):
         super().joined()
+        self.publish_cluster_local_addr()
+        if self.expected_peers_available:
+            reactive.set_flag(self.expand_name('{endpoint_name}.available'))
 
     @when('endpoint.{endpoint_name}.broken')
     def broken(self):

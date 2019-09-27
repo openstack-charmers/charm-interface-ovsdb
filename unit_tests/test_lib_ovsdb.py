@@ -22,7 +22,7 @@ import charms_openstack.test_utils as test_utils
 _hook_args = {}
 
 
-class TestNeutronLoadBalancerRequires(test_utils.PatchHelper):
+class TestOVSDBLib(test_utils.PatchHelper):
 
     def setUp(self):
         super().setUp()
@@ -83,44 +83,6 @@ class TestNeutronLoadBalancerRequires(test_utils.PatchHelper):
         self.network_get.assert_called_once_with(
             'some-relation', relation_id='some-endpoint:42')
 
-    def test_cluster_addrs(self):
-
-        def _assert_generator(iterable, expect):
-            for value in iterable:
-                self.assertEquals(value, expect)
-
-        relation = mock.MagicMock()
-        relation.relation_id = 'some-endpoint:42'
-        unit = mock.MagicMock()
-        relation.units.__iter__.return_value = [unit]
-        self.patch_target('_relations')
-        self._relations.__iter__.return_value = [relation]
-        unit.received.get.return_value = '127.0.0.1'
-        _assert_generator(self.target.cluster_addrs, '127.0.0.1')
-        unit.received.get.assert_called_once_with('bound-address', '')
-        unit.received.get.return_value = '::1'
-        _assert_generator(self.target.cluster_addrs, '[::1]')
-
-    def test_expected_peers_available(self):
-        # self.patch_target('_all_joined_units')
-        self.patch_object(ovsdb.ch_core.hookenv, 'expected_peer_units')
-        self.patch_target('_relations')
-        self.target._all_joined_units = ['aFakeUnit']
-        self.expected_peer_units.return_value = ['aFakeUnit']
-        relation = mock.MagicMock()
-        unit = mock.MagicMock()
-        relation.units.__iter__.return_value = [unit]
-        self._relations.__iter__.return_value = [relation]
-        unit.received.get.return_value = '127.0.0.1'
-        self.assertTrue(self.target.expected_peers_available())
-        unit.received.get.assert_called_once_with('bound-address')
-        unit.received.get.return_value = ''
-        self.assertFalse(self.target.expected_peers_available())
-        self.expected_peer_units.return_value = ['firstFakeUnit',
-                                                 'secondFakeUnit']
-        unit.received.get.return_value = '127.0.0.1'
-        self.assertFalse(self.target.expected_peers_available())
-
     def test_publish_cluster_local_addr(self):
         to_publish = self.patch_topublish()
         self.target.publish_cluster_local_addr()
@@ -128,20 +90,8 @@ class TestNeutronLoadBalancerRequires(test_utils.PatchHelper):
 
     def test_joined(self):
         self.patch_object(ovsdb.reactive, 'set_flag')
-        self.patch_target('publish_cluster_local_addr')
-        self.patch_target('expected_peers_available')
-        self.expected_peers_available.__bool__.return_value = False
         self.target.joined()
-        self.expected_peers_available.__bool__.assert_called_once_with()
         self.set_flag.assert_called_once_with('some-relation.connected')
-        self.publish_cluster_local_addr.assert_called_once_with()
-        self.set_flag.reset_mock()
-        self.expected_peers_available.__bool__.return_value = True
-        self.target.joined()
-        self.set_flag.assert_has_calls([
-            mock.call('some-relation.connected'),
-            mock.call('some-relation.available'),
-        ])
 
     def test_broken(self):
         self.patch_object(ovsdb.reactive, 'clear_flag')
