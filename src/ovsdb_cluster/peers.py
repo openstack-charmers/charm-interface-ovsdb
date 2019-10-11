@@ -44,19 +44,16 @@ class OVSDBClusterPeer(ovsdb.OVSDB):
             for relation in self.relations:
                 for unit in relation.units:
                     if not unit.received.get('bound-address'):
-                        break
-                else:
-                    continue
-                break
-            else:
-                return True
+                        return False
+            return True
         return False
 
     @when('endpoint.{endpoint_name}.joined')
     def joined(self):
         super().joined()
-        self.publish_cluster_local_addr()
-        if self.expected_peers_available:
+        if reactive.is_flag_set('leadership.set.ready'):
+            self.publish_cluster_local_addr()
+        if self.expected_peers_available():
             reactive.set_flag(self.expand_name('{endpoint_name}.available'))
 
     @when('endpoint.{endpoint_name}.broken')
